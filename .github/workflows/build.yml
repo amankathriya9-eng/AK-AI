@@ -1,0 +1,92 @@
+name: Build AK AI EXE
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ak_ai.py"
+      - ".github/workflows/build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Compile check
+        run: python -m py_compile ak_ai.py
+
+      - name: Run AK AI self-test
+        run: python ak_ai.py --selftest
+
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller
+
+      - name: Build Windows EXE
+        run: >
+          python -m PyInstaller
+          --clean
+          --noconfirm
+          --onefile
+          --windowed
+          --name AK_AI
+          ak_ai.py
+
+      - name: Verify EXE exists
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "dist\AK_AI.exe"
+
+          if (-not (Test-Path $exe)) {
+            Write-Error "AK_AI.exe was not created."
+            exit 1
+          }
+
+          $size = (Get-Item $exe).Length
+
+          Write-Host "EXE created: $exe"
+          Write-Host "EXE size: $size bytes"
+
+          if ($size -lt 1000000) {
+            Write-Error "EXE is suspiciously small."
+            exit 1
+          }
+
+      - name: Smoke test EXE
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "dist\AK_AI.exe"
+
+          Write-Host "Starting AK_AI.exe..."
+          $process = Start-Process -FilePath $exe -PassThru
+
+          Start-Sleep -Seconds 5
+
+          if ($process.HasExited) {
+            Write-Error "AK_AI.exe exited during startup. Exit code: $($process.ExitCode)"
+            exit 1
+          }
+
+          Write-Host "AK_AI.exe started successfully."
+
+          Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v7
+        with:
+          name: AK_AI-Windows
+          path: dist/AK_AI.exe
+          if-no-files-found: error
